@@ -145,7 +145,7 @@ def index_file(file, index_name, host="localhost", max_docs=2000000, batch_size=
 @click.option('--source_dir', '-s', help='XML files source directory')
 @click.option('--file_glob', '-g', help='The file glob to use to get the files to index in the source dir.', default="*.xml")
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
-@click.option('--workers', '-w', default=8, help="The name of the index to write to")
+@click.option('--workers', '-w', default=8, help="Max number of processes to use.")
 @click.option('--host', '-o', default="localhost", help="The name of the host running OpenSearch")
 @click.option('--max_docs', '-m', default=200000, help="The maximum number of docs to be indexed PER WORKER PER FILE.")
 @click.option('--batch_size', '-b', default=200, help="The number of docs to send per request. Max of 5000")
