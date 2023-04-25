@@ -1,0 +1,10 @@
+Initial 10K benchmark: 2.32 minutes
+Initial 10K benchmark (w/Threading): 0.77 minutes (263 misses)
+
+1. Change the name matching field to no longer be a fuzzy match: 0.73 minutes (309 misses)
+
+2. Drop the function scores: 0.65 (309 misses)
+
+3. Drop every other matching function except the multi_match: 0.55 (1124 misses)
+
+4. Change the multi_match to only search the name and shortDescription field: 0.5 minutes (1491 misses)

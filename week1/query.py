@@ -9,12 +9,12 @@ import os
 from getpass import getpass
 from urllib.parse import urljoin
 import pandas as pd
-import fileinput
+from tqdm import tqdm
 import logging
 import click
 
 from time import perf_counter
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -54,35 +54,35 @@ def create_query(user_query, filters=None, sort="_score", sortDir="desc", size=1
 
                         ],
                         "should": [  #
-                            {
-                                "match": {
-                                    "name": {
-                                        "query": user_query,
-                                        "fuzziness": "1",
-                                        "prefix_length": 2,
-                                        # short words are often acronyms or usually not misspelled, so don't edit
-                                        "boost": 0.01
-                                    }
-                                }
-                            },
-                            {
-                                "match_phrase": {  # near exact phrase match
-                                    "name.hyphens": {
-                                        "query": user_query,
-                                        "slop": 1,
-                                        "boost": 50
-                                    }
-                                }
-                            },
+                            # {
+                            #     "match": {
+                            #         "name": {
+                            #             "query": user_query,
+                            #             # "fuzziness": "1",
+                            #             # "prefix_length": 2,
+                            #             # short words are often acronyms or usually not misspelled, so don't edit
+                            #             "boost": 0.01
+                            #         }
+                            #     }
+                            # },
+                            # {
+                            #     "match_phrase": {  # near exact phrase match
+                            #         "name.hyphens": {
+                            #             "query": user_query,
+                            #             "slop": 1,
+                            #             "boost": 50
+                            #         }
+                            #     }
+                            # },
                             {
                                 "multi_match": {
                                     "query": user_query,
                                     "type": "phrase",
                                     "slop": "6",
                                     "minimum_should_match": "2<75%",
-                                    "fields": ["name^10", "name.hyphens^10", "shortDescription^5",
-                                               "longDescription^5", "department^0.5", "sku", "manufacturer", "features",
-                                               "categoryPath"]
+                                    "fields": ["name^10", "shortDescription^5"] #"name.hyphens^10",
+                                            #    "longDescription^5", "department^0.5", "sku", "manufacturer", "features",
+                                            #    "categoryPath"]
                                 }
                             },
                             {
@@ -92,15 +92,15 @@ def create_query(user_query, filters=None, sort="_score", sortDir="desc", size=1
                                     "boost": 50.0
                                 }
                             },
-                            {  # lots of products have hyphens in them or other weird casing things like iPad
-                                "match": {
-                                    "name.hyphens": {
-                                        "query": user_query,
-                                        "operator": "OR",
-                                        "minimum_should_match": "2<75%"
-                                    }
-                                }
-                            }
+                            # {  # lots of products have hyphens in them or other weird casing things like iPad
+                            #     "match": {
+                            #         "name.hyphens": {
+                            #             "query": user_query,
+                            #             "operator": "OR",
+                            #             "minimum_should_match": "2<75%"
+                            #         }
+                            #     }
+                            # }
                         ],
                         "minimum_should_match": 1,
                         "filter": filters  #
@@ -108,52 +108,52 @@ def create_query(user_query, filters=None, sort="_score", sortDir="desc", size=1
                 },
                 "boost_mode": "multiply",  # how _score and functions are combined
                 "score_mode": "sum",  # how functions are combined
-                "functions": [
-                    {
-                        "filter": {
-                            "exists": {
-                                "field": "salesRankShortTerm"
-                            }
-                        },
-                        "gauss": {
-                            "salesRankShortTerm": {
-                                "origin": "1.0",
-                                "scale": "100"
-                            }
-                        }
-                    },
-                    {
-                        "filter": {
-                            "exists": {
-                                "field": "salesRankMediumTerm"
-                            }
-                        },
-                        "gauss": {
-                            "salesRankMediumTerm": {
-                                "origin": "1.0",
-                                "scale": "1000"
-                            }
-                        }
-                    },
-                    {
-                        "filter": {
-                            "exists": {
-                                "field": "salesRankLongTerm"
-                            }
-                        },
-                        "gauss": {
-                            "salesRankLongTerm": {
-                                "origin": "1.0",
-                                "scale": "1000"
-                            }
-                        }
-                    },
-                    {
-                        "script_score": {
-                            "script": "0.0001"
-                        }
-                    }
-                ]
+                # "functions": [
+                #     {
+                #         "filter": {
+                #             "exists": {
+                #                 "field": "salesRankShortTerm"
+                #             }
+                #         },
+                #         "gauss": {
+                #             "salesRankShortTerm": {
+                #                 "origin": "1.0",
+                #                 "scale": "100"
+                #             }
+                #         }
+                #     },
+                #     {
+                #         "filter": {
+                #             "exists": {
+                #                 "field": "salesRankMediumTerm"
+                #             }
+                #         },
+                #         "gauss": {
+                #             "salesRankMediumTerm": {
+                #                 "origin": "1.0",
+                #                 "scale": "1000"
+                #             }
+                #         }
+                #     },
+                #     {
+                #         "filter": {
+                #             "exists": {
+                #                 "field": "salesRankLongTerm"
+                #             }
+                #         },
+                #         "gauss": {
+                #             "salesRankLongTerm": {
+                #                 "origin": "1.0",
+                #                 "scale": "1000"
+                #             }
+                #         }
+                #     },
+                #     {
+                #         "script_score": {
+                #             "script": "0.0001"
+                #         }
+                #     }
+                # ]
 
             }
         }
@@ -180,34 +180,44 @@ def search(client, user_query, index="bbuy_products"):
         logger.debug(json.dumps(response, indent=2))
 
         return hits
-
+    else:
+        return 1
 
 @click.command()
-@click.option('--query_file', '-q', default="/workspace/datasets/train.csv", help='Path to train.csv or test.csv or similar file containing queries')
+@click.option('--query_file', '-q', default="/home/elastic/search_engineering/datasets/train.csv", help='Path to train.csv or test.csv or similar file containing queries')
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
 @click.option('--host', '-o', default="localhost", help="The name of the host running OpenSearch")
 @click.option('--max_queries', '-m', default=500, help="The maximum number of queries to run.  Set to -1 to run all.")
 def main(query_file: str, index_name: str, host: str, max_queries: int):
     logger.info(f"Loading query file from {query_file}")
-    query_df = pd.read_csv(query_file, parse_dates=['click_time', 'query_time'])
+    query_df = pd.read_csv(query_file, nrows=max_queries, parse_dates=['click_time', 'query_time'])
     queries = query_df["query"][0:max_queries]
+    total = len(queries)
+    logger.info(f'Loaded {total} queries from csv file.')
     client = get_opensearch(host)
     start = perf_counter()
     i = 0
     modulo = 1000
     logger.info(f"Running queries, checking in every {modulo} queries:")
-    for query in queries:
-        i+= 1
-        hits = search(client, query, index_name)
-        if i % modulo == 0 and hits is not None:
-            logger.info(f"Query: {query} has {len(hits)} hits.")
-
+    misses = 0
+    progress = tqdm(unit=": Queries", total=total)
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        futures = [executor.submit(search, client, query, index_name) for query in queries]
+        for future in as_completed(futures):
+            hits = future.result()
+            progress.update(1)
+            i+= 1
+            if i % modulo == 0:
+                logger.info(f'Completed {i} queries.  {total - i} queries to go.')
+            if isinstance(hits, int):
+                misses += hits
+    # for query in queries:
+    #     hits = search(client, query, index_name)
 
     end = perf_counter()
-    logger.info(f"Finished running {len(queries)} queries in {(end - start)/60} minutes")
+    logger.info(f"Finished running {total} queries in {round((end - start)/60,2)} minutes. Total of {misses} misses out of {total}")
     
     
-
 if __name__ == "__main__":
     main()
 
