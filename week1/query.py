@@ -53,36 +53,36 @@ def create_query(user_query, filters=None, sort="_score", sortDir="desc", size=1
                         "must": [
 
                         ],
-                        "should": [  #
-                            # {
-                            #     "match": {
-                            #         "name": {
-                            #             "query": user_query,
-                            #             # "fuzziness": "1",
-                            #             # "prefix_length": 2,
-                            #             # short words are often acronyms or usually not misspelled, so don't edit
-                            #             "boost": 0.01
-                            #         }
-                            #     }
-                            # },
-                            # {
-                            #     "match_phrase": {  # near exact phrase match
-                            #         "name.hyphens": {
-                            #             "query": user_query,
-                            #             "slop": 1,
-                            #             "boost": 50
-                            #         }
-                            #     }
-                            # },
+                        "should": [
+                            {
+                                "match": {
+                                    "name": {
+                                        "query": user_query,
+                                        "fuzziness": "1",
+                                        "prefix_length": 2,
+                                        # short words are often acronyms or usually not misspelled, so don't edit
+                                        "boost": 0.01
+                                    }
+                                }
+                            },
+                            {
+                                "match_phrase": {  # near exact phrase match
+                                    "name.hyphens": {
+                                        "query": user_query,
+                                        "slop": 1,
+                                        "boost": 50
+                                    }
+                                }
+                            },
                             {
                                 "multi_match": {
                                     "query": user_query,
                                     "type": "phrase",
                                     "slop": "6",
                                     "minimum_should_match": "2<75%",
-                                    "fields": ["name^10", "shortDescription^5"] #"name.hyphens^10",
-                                            #    "longDescription^5", "department^0.5", "sku", "manufacturer", "features",
-                                            #    "categoryPath"]
+                                    "fields": ["name^10", "shortDescription^5", "name.hyphens^10",
+                                               "longDescription^5", "department^0.5", "sku", "manufacturer", "features",
+                                               "categoryPath"]
                                 }
                             },
                             {

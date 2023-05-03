@@ -1,5 +1,8 @@
 # From https://github.com/dshvadskiy/search_with_machine_learning_course/blob/main/index_products.py
+import opensearchpy
+import requests
 from lxml import etree
+
 import os
 import click
 import glob
@@ -7,11 +10,14 @@ from opensearchpy import OpenSearch
 from opensearchpy.helpers import bulk
 import logging
 from pathlib import Path
-from tqdm import tqdm
+import requests
 import json
 
-from time import perf_counter, sleep
+from time import perf_counter
+import signal
 import concurrent.futures
+from multiprocessing import Event
+from multiprocessing import Manager
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -25,60 +31,60 @@ mappings = {
     "name": "name/text()",
     "type":"type/text()",
     "shortDescription": "shortDescription/text()",
-    "startDate": "startDate/text()"
-            }
-# "active": "active/text()",
-# "regularPrice": "regularPrice/text()",
-# "salePrice": "salePrice/text()",
-# "shortDescription": "shortDescription/text()",
-# "shortDescriptionHtml": "shortDescriptionHtml/text()",
-# "longDescription": "longDescription/text()",
-# "longDescriptionHtml": "longDescriptionHtml/text()",
-# "artistName": "artistName/text()",
-# "onSale": "onSale/text()",
-# "digital": "digital/text()",
-# "frequentlyPurchasedWith": "frequentlyPurchasedWith/*/text()",  # Note the match all here to get the subfields
-# "accessories": "accessories/*/text()" ,  # Note the match all here to get the subfields
-# "relatedProducts": "relatedProducts/*/text()",  # Note the match all here to get the subfields
-# "crossSell": "crossSell/text()",
-# "salesRankShortTerm": "salesRankShortTerm/text()",
-# "salesRankMediumTerm": "salesRankMediumTerm/text()",
-# "salesRankLongTerm": "salesRankLongTerm/text()",
-# "bestSellingRank": "bestSellingRank/text()",
-# "url": "url/text()",
-# "categoryPath": "categoryPath/*/name/text()",  # Note the match all here to get the subfields
-# "categoryPathIds": "categoryPath/*/id/text()",  # Note the match all here to get the subfields
-# "categoryLeaf": "categoryPath/category[last()]/id/text()",
-# "categoryPathCount": "count(categoryPath/*/name)",
-# "customerReviewCount": "customerReviewCount/text()",
-# "customerReviewAverage": "customerReviewAverage/text()",
-# "inStoreAvailability": "inStoreAvailability/text()",
-# "onlineAvailability": "onlineAvailability/text()",
-# "releaseDate": "releaseDate/text()",
-# "shippingCost": "shippingCost/text()",
-# "class": "class/text()",
-# "classId": "classId/text()",
-# "subclass": "subclass/text()",
-# "subclassId": "subclassId/text()",
-# "department": "department/text()",
-# "departmentId": "departmentId/text()",
-# "bestBuyItemId": "bestBuyItemId/text()",
-# "description": "description/text()",
-# "manufacturer": "manufacturer/text()",
-# "modelNumber": "modelNumber/text()",
-# "image": "image/text()",
-# "condition": "condition/text()",
-# "inStorePickup": "inStorePickup/text()",
-# "homeDelivery": "homeDelivery/text()",
-# "quantityLimit": "quantityLimit/text()",
-# "color": "color/text()",
-# "depth": "depth/text()",
-# "height": "height/text()",
-# "weight": "weight/text()",
-# "shippingWeight": "shippingWeight/text()",
-# "width": "width/text()",
-# "features": "features/*/text()"} # Note the match all here to get the subfields
+    "startDate": "startDate/text()",
+"active": "active/text()",
+"regularPrice": "regularPrice/text()",
+"salePrice": "salePrice/text()",
+"shortDescription": "shortDescription/text()",
+"shortDescriptionHtml": "shortDescriptionHtml/text()",
+"longDescription": "longDescription/text()",
+"longDescriptionHtml": "longDescriptionHtml/text()",
+"artistName": "artistName/text()",
+"onSale": "onSale/text()",
+"digital": "digital/text()",
+"frequentlyPurchasedWith": "frequentlyPurchasedWith/*/text()",  # Note the match all here to get the subfields
+"accessories": "accessories/*/text()" ,  # Note the match all here to get the subfields
+"relatedProducts": "relatedProducts/*/text()",  # Note the match all here to get the subfields
+"crossSell": "crossSell/text()",
+"salesRankShortTerm": "salesRankShortTerm/text()",
+"salesRankMediumTerm": "salesRankMediumTerm/text()",
+"salesRankLongTerm": "salesRankLongTerm/text()",
+"bestSellingRank": "bestSellingRank/text()",
+"url": "url/text()",
+"categoryPath": "categoryPath/*/name/text()",  # Note the match all here to get the subfields
+"categoryPathIds": "categoryPath/*/id/text()",  # Note the match all here to get the subfields
+"categoryLeaf": "categoryPath/category[last()]/id/text()",
+"categoryPathCount": "count(categoryPath/*/name)",
+"customerReviewCount": "customerReviewCount/text()",
+"customerReviewAverage": "customerReviewAverage/text()",
+"inStoreAvailability": "inStoreAvailability/text()",
+"onlineAvailability": "onlineAvailability/text()",
+"releaseDate": "releaseDate/text()",
+"shippingCost": "shippingCost/text()",
+"class": "class/text()",
+"classId": "classId/text()",
+"subclass": "subclass/text()",
+"subclassId": "subclassId/text()",
+"department": "department/text()",
+"departmentId": "departmentId/text()",
+"bestBuyItemId": "bestBuyItemId/text()",
+"description": "description/text()",
+"manufacturer": "manufacturer/text()",
+"modelNumber": "modelNumber/text()",
+"image": "image/text()",
+"condition": "condition/text()",
+"inStorePickup": "inStorePickup/text()",
+"homeDelivery": "homeDelivery/text()",
+"quantityLimit": "quantityLimit/text()",
+"color": "color/text()",
+"depth": "depth/text()",
+"height": "height/text()",
+"weight": "weight/text()",
+"shippingWeight": "shippingWeight/text()",
+"width": "width/text()",
+"features": "features/*/text()"  # Note the match all here to get the subfields
 
+}
 '''
 "startDate": "startDate/text()",
 "active": "active/text()",
@@ -154,11 +160,11 @@ def get_opensearch(the_host="localhost"):
     return client
 
 
-def index_file(file, index_name, host="localhost", max_docs=2000000, batch_size=200):
+def index_file(file, index_name, stop_event, host="localhost", max_docs=2000000, batch_size=200):
     docs_indexed = 0
     ### W4: S1: Load the model.  # We do this here to avoid threading issues
     client = get_opensearch(host)
-    logger.info(f'Processing file : {file}')
+    logger.debug(f'Processing file : {file}')
     tree = etree.parse(file)
     root = tree.getroot()
     children = root.findall("./product")
@@ -167,7 +173,7 @@ def index_file(file, index_name, host="localhost", max_docs=2000000, batch_size=
     time_indexing = 0
 
     for child in children:
-        if docs_indexed >= max_docs:
+        if docs_indexed >= max_docs or stop_event.is_set():
             break
         doc = {}
         for name, xpath in mappings.items():
@@ -184,21 +190,14 @@ def index_file(file, index_name, host="localhost", max_docs=2000000, batch_size=
             time_indexing += (stop - start)
             docs = []
     if len(docs) > 0:
-        logger.info("Sending final batch of docs")
+        logger.debug("Sending final batch of docs")
         start = perf_counter()
         bulk(client, docs, request_timeout=120)
         stop = perf_counter()
         time_indexing += (stop - start)
-    logger.info(f'{docs_indexed} documents indexed in {round(time_indexing,2)} seconds')
+    logger.debug(f'{docs_indexed} documents indexed in {time_indexing}')
     return docs_indexed, time_indexing
 
-def check_index(client: OpenSearch, index_name: str, refresh_interval: int=30):
-    if not client.indices.exists(index_name):
-        with open('/home/elastic/search_engineering/week1/bbuy_products.json') as f:
-            body = json.load(f)
-        client.indices.create(index=index_name, body=body)
-    refresh_interval = f'{refresh_interval}s' if refresh_interval != -1 else "-1"
-    client.indices.put_settings(index = index_name, body={'refresh_interval':refresh_interval})
 
 @click.command()
 @click.option('--source_dir', '-s', help='XML files source directory')
@@ -208,7 +207,7 @@ def check_index(client: OpenSearch, index_name: str, refresh_interval: int=30):
 @click.option('--host', '-o', default="localhost", help="The name of the host running OpenSearch")
 @click.option('--max_docs', '-m', default=200000, help="The maximum number of docs to be indexed PER WORKER PER FILE.")
 @click.option('--batch_size', '-b', default=200, help="The number of docs to send per request. Max of 5000")
-@click.option('--refresh_interval', '-r', default=30, help="The number seconds to set for refresh.")
+@click.option('--refresh_interval', '-r', default="-1", help="The number of docs to send per request. Max of 5000")
 def main(source_dir: str, file_glob: str, index_name: str, workers: int, host: str, max_docs: int, batch_size: int, refresh_interval: str):
     batch_size = min(batch_size, 5000)  # I believe this is the default max batch size, but need to find docs on that
     logger.info(
@@ -217,31 +216,41 @@ def main(source_dir: str, file_glob: str, index_name: str, workers: int, host: s
     docs_indexed = 0
 
     client = get_opensearch(host)
-    check_index(client, index_name, refresh_interval=refresh_interval)
-    logger.info(client.indices.get_settings(index=index_name))
+
+    #TODO: set the refresh interval
+    logger.debug(client.indices.get_settings(index=index_name))
     start = perf_counter()
     time_indexing = 0
-    progress = tqdm(unit=": Copying Videos", total=len(files))
-    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = [executor.submit(index_file, file, index_name, host, max_docs, batch_size) for file in files]
+
+    with Manager() as manager:
+        stop_event = manager.Event()
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(index_file, file, index_name, stop_event, host, max_docs, batch_size) for file in files]
+
+            # Define a signal handler to shut down the process pool when Ctrl+C is pressed
+            def signal_handler(sig, frame):
+                print()
+                print("Caught SIGINT. Shutting down workers...")
+                print()
+                for future in futures:
+                    # cancel any tasks not yet running
+                    future.cancel()
+                    # signal running tasks in the process pool to stop
+                    stop_event.set()
+
+            # Register the signal handler for SIGINT 
+            signal.signal(signal.SIGINT, signal_handler)
+
         for future in concurrent.futures.as_completed(futures):
             num_docs, the_time = future.result()
             docs_indexed += num_docs
             time_indexing += the_time
-            progress.update(1)
 
     finish = perf_counter()
     logger.info(f'Done. {docs_indexed} were indexed in {(finish - start)/60} minutes.  Total accumulated time spent in `bulk` indexing: {time_indexing/60} minutes')
     # TODO set refresh interval back to 5s
-    sleep(3)
-    print(client.indices.get_mapping(index=index_name))
-    client.indices.delete(index_name)
-    print(client.cat.indices(params={'v':'true'}))
-    # client.indices.put_settings(index = index_name, body= refresh_settings)
-    # logger.info(client.indices.get_settings(index=index_name))
+    logger.debug(client.indices.get_settings(index=index_name))
 
 if __name__ == "__main__":
-    # main()
-    client = get_opensearch()
-    print(client.indices.get_mapping('bbuy_products'))
-
+    main()
