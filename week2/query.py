@@ -4,9 +4,7 @@ from opensearchpy import OpenSearch
 import signal
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
-import argparse
-import json
-import os
+from tqdm import tqdm
 from getpass import getpass
 from urllib.parse import urljoin
 import pandas as pd
@@ -234,10 +232,10 @@ def query_opensearch(worker_num, query_file: str, host: str, index_name: str, ma
             hits, aggregations = search(client, query, index_name)
             if i % modulo == 0 and hits is not None:
                 logger.info(f"WN: {worker_num}: Query: {query} has {len(hits)} hits.")
-                if len(hits) > 0:
-                    logger.info(f"WN: {worker_num}: First result: {hits[0]}")
-                if aggregations is not None:
-                    logger.info(f'WN: {worker_num}: Aggs: {aggregations}')
+                # if len(hits) > 0:
+                #     logger.info(f"WN: {worker_num}: First result: {hits[0]}")
+                # if aggregations is not None:
+                #     logger.info(f'WN: {worker_num}: Aggs: {aggregations}')
         except:
             logger.warn(f'WN: {worker_num}: Failed to process query: {query}')
         i+= 1
@@ -265,7 +263,7 @@ def main(query_file: str, index_name: str, host: str, max_queries: int, seed: in
 
     with Manager() as manager:
         stop_event = manager.Event()
-
+        progress = tqdm(unit='Queries', total=workers)
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(query_opensearch, i, query_file, host, index_name, max_queries, seed*(i+1), stop_event) for i in range(workers)]
 
@@ -285,6 +283,7 @@ def main(query_file: str, index_name: str, host: str, max_queries: int, seed: in
 
             for future in concurrent.futures.as_completed(futures):
                 time = future.result()
+                progress.update(1)
                 logger.info(f"Query worker finished in time: {time/60}")
 
     end = perf_counter()

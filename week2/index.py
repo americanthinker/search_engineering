@@ -1,6 +1,4 @@
 # From https://github.com/dshvadskiy/search_with_machine_learning_course/blob/main/index_products.py
-import opensearchpy
-import requests
 from lxml import etree
 
 import os
@@ -12,7 +10,7 @@ import logging
 from pathlib import Path
 import requests
 import json
-
+from tqdm import tqdm
 from time import perf_counter
 import signal
 import concurrent.futures
@@ -203,10 +201,10 @@ def index_file(file, index_name, stop_event, host="localhost", max_docs=2000000,
 @click.option('--source_dir', '-s', help='XML files source directory')
 @click.option('--file_glob', '-g', help='The file glob to use to get the files to index in the source dir.', default="*.xml")
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
-@click.option('--workers', '-w', default=8, help="The number of workers/processes to use")
+@click.option('--workers', '-w', default=12, help="The number of workers/processes to use")
 @click.option('--host', '-o', default="localhost", help="The name of the host running OpenSearch")
 @click.option('--max_docs', '-m', default=200000, help="The maximum number of docs to be indexed PER WORKER PER FILE.")
-@click.option('--batch_size', '-b', default=200, help="The number of docs to send per request. Max of 5000")
+@click.option('--batch_size', '-b', default=500, help="The number of docs to send per request. Max of 5000")
 @click.option('--refresh_interval', '-r', default="-1", help="The number of docs to send per request. Max of 5000")
 def main(source_dir: str, file_glob: str, index_name: str, workers: int, host: str, max_docs: int, batch_size: int, refresh_interval: str):
     batch_size = min(batch_size, 5000)  # I believe this is the default max batch size, but need to find docs on that
@@ -225,9 +223,14 @@ def main(source_dir: str, file_glob: str, index_name: str, workers: int, host: s
     with Manager() as manager:
         stop_event = manager.Event()
 
+        progress = tqdm(unit=": Files", total=len(files))
         with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(index_file, file, index_name, stop_event, host, max_docs, batch_size) for file in files]
-
+            for future in concurrent.futures.as_completed(futures):
+                num_docs, the_time = future.result()
+                progress.update(1)
+                docs_indexed += num_docs
+                time_indexing += the_time
             # Define a signal handler to shut down the process pool when Ctrl+C is pressed
             def signal_handler(sig, frame):
                 print()
@@ -241,11 +244,6 @@ def main(source_dir: str, file_glob: str, index_name: str, workers: int, host: s
 
             # Register the signal handler for SIGINT 
             signal.signal(signal.SIGINT, signal_handler)
-
-        for future in concurrent.futures.as_completed(futures):
-            num_docs, the_time = future.result()
-            docs_indexed += num_docs
-            time_indexing += the_time
 
     finish = perf_counter()
     logger.info(f'Done. {docs_indexed} were indexed in {(finish - start)/60} minutes.  Total accumulated time spent in `bulk` indexing: {time_indexing/60} minutes')
